@@ -1,0 +1,190 @@
+---
+title: "Heart Disease Prediction"
+author: "Luke Hensley"
+date: "June 12, 2019"
+output: pdf_document
+---
+
+## Executive Summary
+
+This report attempts to predict which patients may have heart disease. The data used is the UCI Heart Disease dataset from Kaggle -  (<https://www.kaggle.com/ronitf/heart-disease-uci>).
+
+Exploratory analysis was conducted on the data to visualize differences with patients that have heart disease, and those who don't. The dataset was split into two data sets (train and test) and a regression model was built. The model was then improved using stepwise backward elimination. Predictions were made based on train set data, then performance of the model was evaluated by using the model on the test data set. 
+
+Performance measures and results: \
+Area under the curve (AUC): 0.933 \
+Accuracy: 0.902 \
+Sensitivity: 0.8929 \
+Specificity: 0.9091
+
+## Analysis
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org"); library(tidyverse)
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org"); library(caret)
+if(!require("ROCR")) install.packages("ROCR", repos = "http://cran.us.r-project.org"); library(ROCR)
+
+# Load data 
+
+data <- read.csv('/Users/luke/Documents/Rstudio/heart_disease_ml/heart.csv')
+names(data)[1] <- 'age'
+
+# Converting to factors
+data$sex <- as.factor(data$sex)
+data$cp <- as.factor(data$cp)
+data$fbs <- as.factor(data$fbs)
+data$restecg <- as.factor(data$restecg)
+data$exang <- as.factor(data$exang)
+data$slope <- as.factor(data$slope)
+data$ca <- as.factor(data$ca)
+data$thal <- as.factor(data$thal)
+data$target <- as.factor(data$target)
+
+```
+
+**Independent variables:** \
+1. age: age of the patient \
+2. sex: sex of the patient \
+3. cp: chest pain type \
+4. trestbps: resting blood pressure \
+5. chol: serum cholestoral in mg/dl \
+6. fbs: fasting blood sugar > 120 mg/dl \
+7. restecg: resting electrocardiographic results (values 0,1,2) \
+8. thalach: maximum heart rate achieved \
+9. exang: exercise induced angina \
+10. oldpeak: ST depression induced by exercise relative to rest \
+11. slope: the slope of the peak exercise ST segment \
+12. ca: number of major vessels (0-3) colored by flourosopy \ 
+13. thal: normal, fixed defect, reversable defect \
+
+**Data structure:** 
+
+```{r echo=FALSE}
+str(data)
+```
+
+**Exploratory Analyses**
+
+We first make sure that there are no missing values in the data. Then we check the summary statistics of the variables. Bivariate analyses between the independent and target variables are conducted and plotted. Categorical independent variables are plotted using a barplot to show the split of the 'target'.  A frequency histogram is created to show the continuous independent variables, and the difference in distributions for the two 'target' categories is shown. 
+
+**Barplot for 'Sex' variable:** 
+
+```{r echo=FALSE}
+barplot(table(data$target, data$sex), 
+        main = 'Split of Target by Sex Buckets', 
+        xlab = 'Sex', ylab = 'Count',
+        legend.text = c('Target 0', 'Target 1'), args.legend = c(x=1,y=200),  col=c("red", "blue"))
+
+```
+
+```{r echo=F, fig.show='hide'}
+p1 <- hist(data$age[data$target==0], col=c("red")) 
+p2 <- hist(data$age[data$target==1], col=c("blue"))
+```
+```{r echo=FALSE}
+plot(p1, col="red", xlim=c(0,100), main='Frequency Distribution of Age by Target Buckets', xlab='Age')
+plot(p2, col="blue", xlim=c(0,100), add=T)
+
+legend(x=80, y=30, legend=c('Target 0', 'Target 1'), pch=15, col=c("red", "blue"))
+```
+**Predictive Analyses** \
+
+The data was split into two data sets, train and test. A random 20% of data is in the test set and the remaining 80% is used to train the model.
+
+```{r echo=FALSE}
+set.seed(1)
+test_index <- createDataPartition(y = data$target, times = 1, p = 0.2, list = FALSE)
+train_data <- data[-test_index,]
+test_data <- data[test_index,]
+nrow(test_data)
+nrow(train_data)
+```
+
+A logistic regression model is chosen, and the stepwise backward elimination method is then used to select variables. Akaike Information Criteria (AIC) is used, while p-values detect insignificant variables for each step. 
+
+```{r echo=FALSE}
+model <- glm(target~., data = train_data, family = binomial(link = 'logit'))
+select_vars_model <- step(model, trace=0)
+summary(select_vars_model)
+```
+
+The trained model is then used to make predictions on the test set. The ROC curve is plotted and the AUC is calculated for performance measurement. A probability threshold of 0.5 is set, and a confusion matrix is viewed alongside sensitivity and specificity. 
+
+```{r echo=F, fig.show='hide'}
+test_predicted <- predict(select_vars_model, test_data, type='response')
+
+# ROC curve and AUC value
+ROCRpred = prediction(test_predicted,test_data$target)
+ROCRperf = performance(ROCRpred, "tpr", "fpr")
+plot(ROCRperf, main='ROC Curve')
+auc <- attributes(performance(ROCRpred, 'auc'))$y.values[[1]]
+
+# Confusion Matrix for probability threshold of 0.5
+predClass <- as.factor(ifelse(test_predicted>=0.5,1,0))
+con_mat <- confusionMatrix(test_data$target, predClass)
+```
+
+## Results
+
+No blank or NA values are found in the data.
+```{r echo=FALSE}
+# Check if there are blank or NA values in the dataset
+sapply(data, function(x) sum(is.na(x)))
+```
+
+There is no major imbalance in the target variable.
+
+```{r echo=FALSE}
+# View summary of data 
+summary(data)
+
+barplot(table(data$target), main='Split of Target Variable', xlab='Target Variable', ylab='Patient Count', col=c("red", "blue"))
+```
+
+Bivariate analyses showed some variables very important to predicting heart disease (cp, exang, slope, ca, thal, thalach).
+
+In the below plot, patients with chest pain cp=0 are less likely to have heart disease than those with chest pain cp=1,2 or 3.
+
+```{r echo=FALSE, fig.width=6,fig.height=4}
+barplot(table(data$target, data$cp), 
+        main = 'Split of Target by CP Buckets', 
+        xlab = 'CP', ylab = 'Count',
+        legend.text = c('Target 0', 'Target 1'), args.legend = c(x=5,y=150), col=c("red", "blue"))
+```
+
+The following plot shows patients with heart disease tended to have a higher maximum heart rate than those not having heart disease.  
+
+```{r echo=F, fig.show='hide'}
+p1 <- hist(data$thalach[data$target==0]) 
+p2 <- hist(data$thalach[data$target==1])
+
+plot(p2, col="red", xlim=c(50,250), main='Distribution of Thalach by Buckets', xlab='Thalach')
+plot(p1, col="blue", xlim=c(50,250), add=T)
+
+legend(x=190, y=30, legend=c('Target 0', 'Target 1'), pch=15, col=c("red", "blue"))
+```
+The base model gave an AIC of 200.28. The best AIC after variables were selected was 192.54.
+
+ROC curve and AUC value:
+
+```{r echo=FALSE, fig.width=6,fig.height=3.65}
+# ROC and AUC
+plot(ROCRperf, main='ROC Curve')
+auc <- attributes(performance(ROCRpred, 'auc'))$y.values[[1]]
+auc
+```
+
+Confusion matrix showed 55 of 61 instances in the test set were correctly classified at a probability threshold of 0.5. In addition, sensitivity was 0.893 and specificity was 0.909. 
+
+```{r echo=FALSE}
+# Confusion Matrix
+confusionMatrix(test_data$target, predClass)
+```
+
+## Conclusion
+
+The model performed best after using stepwise backward elimination. The most significant variables were 'ca', 'cp' and 'sex'. The variables 'age', 'chol', 'fbs', 'oldpeak', and 'restecg' were not critical for heart disease prediction.  
+
+The final model had an accuracy of over 90%. Sensitivity of 89% (percentage of positive cases accurately captured), and specificity of 91%. 
